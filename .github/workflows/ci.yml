@@ -655,6 +655,7 @@ jobs:
           name: browser-runtime-linux
           path: desktop/electron/artifacts/browser-runtime/
           if-no-files-found: warn
+          retention-days: 7
       - name: Test submission handoff in Chromium
         if: matrix.group == 'transcript'
         timeout-minutes: 4
@@ -1053,6 +1054,7 @@ jobs:
           name: browser-runtime-macos
           path: desktop/electron/artifacts/browser-runtime/
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Test bounded Electron diagnostics
         timeout-minutes: 3
@@ -1262,6 +1264,7 @@ jobs:
           name: browser-runtime-windows
           path: desktop/electron/artifacts/browser-runtime/
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Test transcript content bounds in native Electron
         timeout-minutes: 5
