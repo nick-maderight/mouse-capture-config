@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -26,6 +26,25 @@ const ci = workflow("ci");
 const release = workflow("release-desktop");
 const promote = workflow("release-promote");
 const appMemory = workflow("app-memory");
+
+function uploadSteps(source) {
+  const lines = source.split("\n");
+  const steps = [];
+  for (let index = 0; index < lines.length; index++) {
+    const step = lines[index].match(/^(\s*)- uses: actions\/upload-artifact@/);
+    if (!step) continue;
+    const indent = step[1].length;
+    const block = [lines[index]];
+    for (let next = index + 1; next < lines.length; next++) {
+      const line = lines[next];
+      if (line.trim() && line.match(/^\s*/)[0].length <= indent) break;
+      block.push(line);
+    }
+    steps.push(block.join("\n"));
+  }
+  return steps;
+}
+
 
 test("frontend artifact workflows share one exact Node runtime", () => {
   const version = readFileSync(new URL("../.node-version", import.meta.url), "utf8").trim();
@@ -224,6 +243,28 @@ test("App memory workflow tiers pull requests and keeps full scheduled coverage"
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.workflowOutput, expected);
   }
+});
+
+
+test("Artifact uploads declare retention and keep raw heap dumps off the routine path", () => {
+  const directory = new URL("../.github/workflows/", import.meta.url);
+  for (const file of readdirSync(directory).filter(entry => entry.endsWith(".yml"))) {
+    const source = readFileSync(new URL(file, directory), "utf8");
+    for (const step of uploadSteps(source)) {
+      assert.match(step, /^\s+retention-days: \d+$/m, `${file} upload must declare retention-days`);
+    }
+  }
+  const shard = uploadSteps(job(appMemory, "shard"));
+  const evidence = shard.find(step => /name: app-memory-shard-/.test(step));
+  assert.ok(evidence, "shard evidence upload");
+  assert.match(evidence, /app-memory-results\/report\.json/);
+  assert.doesNotMatch(evidence, /heapsnapshot/);
+  assert.match(evidence, /^\s+retention-days: 7$/m);
+  const snapshots = shard.find(step => /name: app-memory-heap-/.test(step));
+  assert.match(snapshots, /if: \$\{\{ failure\(\) \|\| inputs\.keep_heap_snapshots == true \}\}/);
+  assert.match(snapshots, /^\s+retention-days: 1$/m);
+  assert.match(job(appMemory, "prepare"), /retention-days: 1/);
+  assert.match(appMemory, /keep_heap_snapshots:\n\s+description:/);
 });
 
 test("macOS signing diagnostics require protected main and cannot publish", () => {

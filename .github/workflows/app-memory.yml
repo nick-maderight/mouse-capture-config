@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      keep_heap_snapshots:
+        description: Upload raw heap snapshots even when screening passes
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -105,7 +110,7 @@ jobs:
           path: ${{ runner.temp }}/app-memory-build
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   shard:
     needs: [changes, prepare]
@@ -153,9 +158,23 @@ jobs:
         if: always()
         with:
           name: app-memory-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/app-memory-results
+          path: |
+            ${{ runner.temp }}/app-memory-results/report.json
+            ${{ runner.temp }}/app-memory-results/timings.json
+            ${{ runner.temp }}/app-memory-results/*.summary.json
+            ${{ runner.temp }}/app-memory-results/*-samples.json
           if-no-files-found: error
           retention-days: 7
+      # Raw heap snapshots run about 250 MB per shard before compression and
+      # the shared 500 MB account allowance covers every repository. Keep them
+      # for a failed run, or on request, and never as routine green evidence.
+      - uses: actions/upload-artifact@v7
+        if: ${{ failure() || inputs.keep_heap_snapshots == true }}
+        with:
+          name: app-memory-heap-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-memory-results
+          if-no-files-found: ignore
+          retention-days: 1
 
   app-memory:
     if: always()
