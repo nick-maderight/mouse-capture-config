@@ -31,13 +31,18 @@ function uploadSteps(source) {
   const lines = source.split("\n");
   const steps = [];
   for (let index = 0; index < lines.length; index++) {
-    const step = lines[index].match(/^(\s*)- uses: actions\/upload-artifact@/);
-    if (!step) continue;
-    const indent = step[1].length;
-    const block = [lines[index]];
-    for (let next = index + 1; next < lines.length; next++) {
+    if (!/uses: actions\/upload-artifact@/.test(lines[index])) continue;
+    let start = index;
+    if (!/^\s*- /.test(lines[index])) {
+      let previous = index - 1;
+      while (previous >= 0 && !/^\s*- /.test(lines[previous])) previous -= 1;
+      if (previous >= 0) start = previous;
+    }
+    const indent = lines[start].match(/^(\s*)- /)[1].length;
+    const block = [];
+    for (let next = start; next < lines.length; next++) {
       const line = lines[next];
-      if (line.trim() && line.match(/^\s*/)[0].length <= indent) break;
+      if (next > start && /^\s*- /.test(line) && line.match(/^(\s*)/)[1].length <= indent) break;
       block.push(line);
     }
     steps.push(block.join("\n"));
@@ -250,7 +255,10 @@ test("Artifact uploads declare retention and keep raw heap dumps off the routine
   const directory = new URL("../.github/workflows/", import.meta.url);
   for (const file of readdirSync(directory).filter(entry => entry.endsWith(".yml"))) {
     const source = readFileSync(new URL(file, directory), "utf8");
-    for (const step of uploadSteps(source)) {
+    const uploads = (source.match(/uses: actions\/upload-artifact@/g) ?? []).length;
+    const steps = uploadSteps(source);
+    assert.equal(steps.length, uploads, `${file} upload steps must stay inside their own block`);
+    for (const step of steps) {
       assert.match(step, /^\s+retention-days: \d+$/m, `${file} upload must declare retention-days`);
     }
   }
